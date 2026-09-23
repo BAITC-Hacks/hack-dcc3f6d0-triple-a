@@ -1,16 +1,15 @@
 """AI Sana — run with: python -m streamlit run app.py."""
 
 from html import escape
-import os
 from uuid import uuid4
 
 import streamlit as st
 
-from ai_assistant import generate_task_card, review_task_card
+from ai_assistant import AssistantServiceError, configured_api_key, generate_task_card, review_task_card
 from utils import SKILLS, demo_tasks, evaluate, publish, select_team, submit_response
 
 st.set_page_config(page_title="AI Sana · Практика с результатом", page_icon=":material/hub:", layout="wide")
-st.markdown(""".\.venv\Scripts\python.exe -m streamlit run app.py
+st.markdown("""
 <style>
 .stApp {background:linear-gradient(180deg,#F7FAF9 0,#FFFFFF 34rem)}
 .block-container {max-width:1200px;padding-top:4rem;padding-bottom:4rem}
@@ -84,7 +83,7 @@ def api_key():
         secret = st.secrets.get("OPENAI_API_KEY")
     except Exception:
         secret = None
-    return secret or os.getenv("OPENAI_API_KEY")
+    return configured_api_key(secret)
 
 
 def apply_ai_suggestion(card):
@@ -97,9 +96,13 @@ def apply_ai_suggestion(card):
 
 
 def ai_mode_badge(mode=None):
-    using_openai = mode == "openai" or (mode is None and bool(api_key()))
-    label = "OpenAI API" if using_openai else "Локальный demo-режим · без API-ключа"
-    st.badge(label, icon=":material/auto_awesome:", color="green" if using_openai else "blue")
+    if mode == "openai":
+        label, color = "Последний результат · OpenAI API", "green"
+    elif mode == "demo":
+        label, color = "Последний результат · локальный demo-режим", "blue"
+    else:
+        label, color = "Режим определится после запуска по кнопке", "gray"
+    st.badge(label, icon=":material/auto_awesome:", color=color)
 
 
 def home():
@@ -161,10 +164,11 @@ def create_task():
         )
         if st.button("Собрать карточку с AI", icon=":material/auto_awesome:", type="primary", width="stretch", key="generate_ai_draft"):
             S.ai_suggestion = None
+            S.ai_mode = None
             try:
                 with st.spinner("Анализирую контекст и собираю поля…"):
                     S.ai_suggestion, S.ai_mode = generate_task_card(brief, api_key=api_key())
-            except Exception as exc:
+            except (AssistantServiceError, ValueError) as exc:
                 st.error(f"Не удалось собрать карточку: {exc}")
         if S.ai_suggestion:
             source = "OpenAI" if S.ai_mode == "openai" else "локальным demo-генератором (не моделью)"
@@ -241,10 +245,11 @@ def create_task():
                 st.write("Все основные поля заполнены. Перед публикацией проверьте измеримость цели и реалистичность срока.")
         if st.button("Получить AI-рецензию", icon=":material/rate_review:", width="stretch", key="review_draft"):
             S.ai_review = None
+            S.ai_mode = None
             try:
                 with st.spinner("Ищу слабые места карточки…"):
                     S.ai_review, S.ai_mode = review_task_card(S.draft, api_key=api_key())
-            except Exception as exc:
+            except (AssistantServiceError, ValueError) as exc:
                 st.error(f"AI-рецензия временно недоступна: {exc}")
         if S.ai_review:
             reviewer = "Рецензия OpenAI" if S.ai_mode == "openai" else "Локальная demo-рецензия · без обращения к модели"
