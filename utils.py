@@ -1,4 +1,4 @@
-"""Local, deterministic demo logic. No external services."""
+"""Local, deterministic MVP logic. No external services."""
 
 from copy import deepcopy
 from uuid import uuid4
@@ -12,6 +12,13 @@ FIELDS = {
     "requirements": ("Требования", 15, 60, "Добавьте ограничения, доступные данные и требования к решению (от 60 символов)."),
     "deadline": ("Срок выполнения", 10, 1, "Укажите реалистичный срок выполнения."),
     "skills": ("Необходимые навыки", 10, 1, "Выберите хотя бы один необходимый навык."),
+}
+
+RESPONSE_MIN_LENGTHS = {
+    "team": 2,
+    "proposal": 30,
+    "experience": 10,
+    "contact": 5,
 }
 
 
@@ -31,13 +38,18 @@ def evaluate(data):
             "ready": bool(required and score >= 75)}
 
 
-def publish(tasks, draft):
+def publish(tasks, draft, submission_id=None):
+    """Publish a validated draft once, even if the submit action is repeated."""
     assessment = evaluate(draft)
     if not assessment["ready"]:
         raise ValueError("Заполните все основные поля и наберите минимум 75 баллов.")
+    if submission_id:
+        existing = next((item for item in tasks if item.get("submission_id") == submission_id), None)
+        if existing:
+            return existing
     task = deepcopy(draft)
     task.update(id=uuid4().hex, score=assessment["score"], owned=True,
-                status="Открыта", selected_team=None, responses=[])
+                status="Открыта", selected_team=None, responses=[], submission_id=submission_id)
     tasks.append(task)
     return task
 
@@ -48,6 +60,16 @@ def submit_response(task, team, proposal, experience, contact):
     values = [team.strip(), proposal.strip(), experience.strip(), contact.strip()]
     if not all(values):
         raise ValueError("Заполните все поля предложения, включая контакт для связи.")
+    labels = {
+        "team": "Название команды",
+        "proposal": "Предложение команды",
+        "experience": "Навыки / опыт",
+        "contact": "Контакт",
+    }
+    for field, value in zip(RESPONSE_MIN_LENGTHS, values):
+        minimum = RESPONSE_MIN_LENGTHS[field]
+        if len(value) < minimum:
+            raise ValueError(f'{labels[field]}: минимум {minimum} символов.')
     if any(r["team"].casefold() == values[0].casefold() for r in task["responses"]):
         raise ValueError("Предложение от команды с таким названием уже отправлено.")
     response = dict(zip(["team", "proposal", "experience", "contact"], values))
